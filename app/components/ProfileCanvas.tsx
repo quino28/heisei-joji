@@ -15,6 +15,7 @@ const HEADER_H  = 50;
 const FOOTER_H  = 50;
 const CLAMP = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+type Tool = "pen" | "pan";
 type LineData = { points: number[]; strokeWidth: number };
 
 function usePair() {
@@ -34,7 +35,6 @@ function ProfileCanvasInner() {
   const offsetRef   = useRef({ x: 0, y: 0 });
   const minScaleRef = useRef(0.05);
   const isPCRef     = useRef(false);
-  // Stage の自然サイズ（transform前）
   const stageWRef   = useRef(1);
   const stageHRef   = useRef(1);
 
@@ -42,10 +42,19 @@ function ProfileCanvasInner() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  // ---- モード管理（モバイルはpanデフォルト） ----
+  const [activeTool, setActiveTool] = useState<Tool>(
+    typeof window !== "undefined" && window.innerWidth < 1024 ? "pan" : "pen"
+  );
+
   const isDrawing   = useRef(false);
   const wasPinching = useRef(false);
   const lastDist    = useRef(0);
   const lastMid     = useRef({ x: 0, y: 0 });
+
+  // ---- タッチ開始位置（しきい値判定用） ----
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const DRAW_THRESHOLD = 8;
 
   // ---- レイアウト計算 ----
   const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
@@ -134,8 +143,9 @@ function ProfileCanvasInner() {
     (x >= frontX && x <= frontX + imgW && y >= frontY && y <= frontY + imgH) ||
     (x >= backX  && x <= backX  + bkW  && y >= backY  && y <= backY  + bkH);
 
-  // ---- 描画 ----
+  // ---- 描画（マウス） ----
   const handleMouseDown = (_e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (activeTool !== "pen") return;
     const pos = stageRef.current?.getPointerPosition();
     if (!pos || !inImage(pos.x, pos.y)) return;
     isDrawing.current = true;
@@ -143,7 +153,7 @@ function ProfileCanvasInner() {
   };
 
   const handleMouseMove = (_e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (!isDrawing.current) return;
+    if (activeTool !== "pen" || !isDrawing.current) return;
     const pos = stageRef.current?.getPointerPosition();
     if (!pos) return;
     setLines(prev => {
@@ -159,26 +169,49 @@ function ProfileCanvasInner() {
     setLines(cur => { pushHistory(cur); return cur; });
   };
 
+  // ---- 描画（タッチ） ----
   const handleTouchStart = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    if (activeTool !== "pen") return;
     if (e.evt.touches.length !== 1 || wasPinching.current) return;
     const pos = stageRef.current?.getPointerPosition();
     if (!pos || !inImage(pos.x, pos.y)) return;
-    isDrawing.current = true;
-    setLines(prev => [...prev, { points: [pos.x, pos.y], strokeWidth: 3 }]);
+    // 描画開始はせず開始位置だけ記録
+    touchStartPos.current = { x: pos.x, y: pos.y };
   };
 
   const handleTouchMove = (e: Konva.KonvaEventObject<TouchEvent>) => {
-    if (!isDrawing.current || e.evt.touches.length !== 1) return;
+    if (activeTool !== "pen") return;
+    if (e.evt.touches.length !== 1) return;
     const pos = stageRef.current?.getPointerPosition();
     if (!pos) return;
+
+    if (!isDrawing.current) {
+      // しきい値チェック
+      if (!touchStartPos.current) return;
+      const dx = pos.x - touchStartPos.current.x;
+      const dy = pos.y - touchStartPos.current.y;
+      if (Math.hypot(dx, dy) < DRAW_THRESHOLD) return;
+      // しきい値超え → 開始点から描画開始
+      isDrawing.current = true;
+      setLines(prev => [
+        ...prev,
+        { points: [touchStartPos.current!.x, touchStartPos.current!.y, pos.x, pos.y], strokeWidth: 3 },
+      ]);
+      return;
+    }
+
     setLines(prev => {
       const u = [...prev];
-      u[u.length - 1] = { ...u[u.length - 1], points: [...u[u.length - 1].points, pos.x, pos.y] };
+      u[u.length - 1] = {
+        ...u[u.length - 1],
+        points: [...u[u.length - 1].points, pos.x, pos.y],
+      };
       return u;
     });
   };
 
   const handleTouchEnd = () => {
+    touchStartPos.current = null;
     if (!isDrawing.current) return;
     isDrawing.current = false;
     setLines(cur => { pushHistory(cur); return cur; });
@@ -286,6 +319,7 @@ function ProfileCanvasInner() {
       if (e.touches.length === 2) {
         wasPinching.current = true;
         isDrawing.current   = false;
+        touchStartPos.current = null;
         lastDist.current = Math.hypot(
           e.touches[1].clientX - e.touches[0].clientX,
           e.touches[1].clientY - e.touches[0].clientY,
@@ -346,8 +380,8 @@ function ProfileCanvasInner() {
     <>
       <div className="fixed top-20 left-2 z-50 flex flex-col gap-2 lg:flex-row lg:left-4">
         <Toolbar
-          activeTool="pen"
-          onToolChange={() => {}}
+          activeTool={activeTool}
+          onToolChange={(tool) => setActiveTool(tool)}
           onUndo={undo}
           onRedo={redo}
           onDownloadAll={handleDownloadAll}
@@ -363,7 +397,7 @@ function ProfileCanvasInner() {
         style={{
           height: `calc(100vh - ${HEADER_H + FOOTER_H}px)`,
           touchAction: "none",
-          cursor: "default",
+          cursor: activeTool === "pen" ? "crosshair" : "grab",
           boxSizing: "border-box",
         }}
       >
@@ -404,5 +438,4 @@ function ProfileCanvasInner() {
     </>
   );
 }
-
 export default dynamic(() => Promise.resolve(ProfileCanvasInner), { ssr: false });

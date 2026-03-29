@@ -9,7 +9,7 @@ import {
 
 import Image from 'next/image';
 
-type Tool = "pen";
+type Tool = "pen" | "pan";
 
 interface ToolbarProps {
   activeTool: Tool;
@@ -82,9 +82,9 @@ export default function Toolbar({
     >
       {/* ペン */}
       <ToolButton
-        onClick={() => onToolChange("pen")}
+        onClick={() => onToolChange(activeTool === "pen" ? "pan" : "pen")}
         active={activeTool === "pen"}
-        title="ペン"
+        title={activeTool === "pen" ? "ペン（タップで解除）" : "ペン"}
       >
         <PenLine size={20} />
       </ToolButton>
