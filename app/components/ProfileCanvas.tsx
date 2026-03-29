@@ -396,7 +396,7 @@ function ProfileCanvasInner() {
         className="w-full overflow-hidden"
         style={{
           height: `calc(100vh - ${HEADER_H + FOOTER_H}px)`,
-          touchAction: "none",
+          touchAction: "auto",
           cursor: activeTool === "pen" ? "crosshair" : "grab",
           boxSizing: "border-box",
         }}
