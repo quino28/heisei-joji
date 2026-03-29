@@ -43,9 +43,14 @@ function ProfileCanvasInner() {
   const [canRedo, setCanRedo] = useState(false);
 
   // ---- モード管理（モバイルはpanデフォルト） ----
-  const [activeTool, setActiveTool] = useState<Tool>(
+  const activeToolRef = useRef<Tool>(
     typeof window !== "undefined" && window.innerWidth < 1024 ? "pan" : "pen"
   );
+  const [activeTool, setActiveTool] = useState<Tool>(activeToolRef.current);
+  const handleToolChange = useCallback((tool: Tool) => {
+    activeToolRef.current = tool;
+    setActiveTool(tool);
+  }, []);
 
   const isDrawing   = useRef(false);
   const wasPinching = useRef(false);
@@ -315,8 +320,11 @@ function ProfileCanvasInner() {
     const el = outerRef.current;
     if (!el) return;
 
+    let singleTouchStart: { x: number; y: number } | null = null;
+
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
+        // ピンチ処理
         wasPinching.current = true;
         isDrawing.current   = false;
         touchStartPos.current = null;
@@ -328,11 +336,35 @@ function ProfileCanvasInner() {
           x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
           y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
         };
+      } else if (e.touches.length < 2 && activeToolRef.current === "pan") {
+        // 1本指パン開始
+        singleTouchStart = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+        };
       }
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 2) return;
+      if (e.touches.length !== 2) {
+        // 1本指パン
+        if (e.touches.length < 2 && activeToolRef.current === "pan") {
+          if (!singleTouchStart) return;
+          e.preventDefault();
+          const dx = e.touches[0].clientX - singleTouchStart.x;
+          const dy = e.touches[0].clientY - singleTouchStart.y;
+          singleTouchStart = {
+            x: e.touches[0].clientX,
+            y: e.touches[0].clientY,
+          };
+          applyTransform(scaleRef.current, {
+            x: offsetRef.current.x + dx,
+            y: offsetRef.current.y + dy,
+          });
+        }
+        // 拡大縮小は描写しない
+        return;
+      }
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       const nd   = Math.hypot(
@@ -363,7 +395,12 @@ function ProfileCanvasInner() {
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) setTimeout(() => { wasPinching.current = false; }, 50);
+      if (e.touches.length < 2) {
+        setTimeout(() => { wasPinching.current = false; }, 50);
+      }
+      if (e.touches.length === 0) {
+        singleTouchStart = null;
+      }
     };
 
     el.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -381,7 +418,7 @@ function ProfileCanvasInner() {
       <div className="fixed top-20 left-2 z-50 flex flex-col gap-2 lg:flex-row lg:left-4">
         <Toolbar
           activeTool={activeTool}
-          onToolChange={(tool) => setActiveTool(tool)}
+          onToolChange={handleToolChange}
           onUndo={undo}
           onRedo={redo}
           onDownloadAll={handleDownloadAll}
@@ -396,7 +433,7 @@ function ProfileCanvasInner() {
         className="w-full overflow-hidden"
         style={{
           height: `calc(100vh - ${HEADER_H + FOOTER_H}px)`,
-          touchAction: activeTool === "pen" ? "none" : "manipulation",
+          touchAction: "none",
           cursor: activeTool === "pen" ? "crosshair" : "grab",
           boxSizing: "border-box",
         }}
