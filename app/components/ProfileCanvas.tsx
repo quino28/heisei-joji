@@ -257,17 +257,88 @@ function ProfileCanvasInner() {
   }, []);
 
   // ---- ダウンロード ----
-  const downloadArea = (x: number, y: number, w: number, h: number, name: string) => {
+  const handleDownloadAll = () => {
     const stage = stageRef.current;
     if (!stage) return;
-    const uri = stage.toDataURL({ x, y, width: w, height: h, pixelRatio: 2 });
-    const a = document.createElement("a");
-    a.download = name; a.href = uri; a.click();
-  };
 
-  const handleDownloadAll = () => {
-    downloadArea(frontX, frontY, imgW, imgH, "jojiprof_front.png");
-    setTimeout(() => downloadArea(backX, backY, bkW, bkH, "jojiprof_back.png"), 300);
+    const frontUri = stage.toDataURL({ x: frontX, y: frontY, width: imgW, height: imgH, pixelRatio: 2 });
+    const backUri  = stage.toDataURL({ x: backX,  y: backY,  width: bkW,  height: bkH,  pixelRatio: 2 });
+
+    const canvas  = document.createElement("canvas");
+    canvas.width  = (imgW + bkW) * 2;
+    canvas.height = Math.max(imgH, bkH) * 2;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const frontImg = new Image();
+    const backImg  = new Image();
+
+    frontImg.onload = () => {
+      backImg.onload = () => {
+        ctx.drawImage(frontImg, 0, 0);
+        ctx.drawImage(backImg, imgW * 2, 0);
+
+        const dataUrl = canvas.toDataURL("image/png");
+
+        // ---- iOS/iPadOS判定 ----
+        const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+          || (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1);
+
+        if (isIOS) {
+          // iOS/iPadOS → 新規タブで開いて長押し保存
+          const win = window.open();
+          if (!win) return;
+
+          win.document.title = "プロフィール画像";
+
+          const meta = win.document.createElement("meta");
+          meta.name = "viewport";
+          meta.content = "width=device-width,initial-scale=1";
+          win.document.head.appendChild(meta);
+
+          win.document.body.style.cssText = `
+            margin: 0;
+            min-height: 100vh;
+            background-image: url('/yumekawa_bg.jpeg');
+            background-size: cover;
+            background-position: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+            gap: 16px;
+            `;
+
+          const img = win.document.createElement("img");
+          img.src = dataUrl;
+          img.style.cssText = "max-width:100%;height:auto;display:block";
+          win.document.body.appendChild(img);
+
+          const p = win.document.createElement("p");
+          p.textContent = "長押しして「写真に保存」してね！";
+          p.style.cssText = `
+            color: #000;
+            text-align: center;
+            font-size: 14px;
+            background: rgba(255,255,255,0.6);
+            padding: 6px 16px;
+            border-radius: 8px;
+            margin: 0;
+            `;
+          win.document.body.appendChild(p);
+        } else {
+          // Mac・Android・PCは通常ダウンロード
+          const a = document.createElement("a");
+          a.download = "myprofile.png";
+          a.href = dataUrl;
+          a.click();
+        }
+      };
+      backImg.src = backUri;
+    };
+    frontImg.src = frontUri;
   };
 
   const handleShareTwitter = () => {
