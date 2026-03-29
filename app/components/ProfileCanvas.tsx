@@ -43,10 +43,9 @@ function ProfileCanvasInner() {
   const [canRedo, setCanRedo] = useState(false);
 
   // ---- モード管理（モバイルはpanデフォルト） ----
-  const activeToolRef = useRef<Tool>(
+  const [activeTool, setActiveTool] = useState<Tool>(
     typeof window !== "undefined" && window.innerWidth < 1024 ? "pan" : "pen"
   );
-  const [activeTool, setActiveTool] = useState<Tool>(activeToolRef.current);
 
   const isDrawing   = useRef(false);
   const wasPinching = useRef(false);
@@ -144,11 +143,6 @@ function ProfileCanvasInner() {
     (x >= frontX && x <= frontX + imgW && y >= frontY && y <= frontY + imgH) ||
     (x >= backX  && x <= backX  + bkW  && y >= backY  && y <= backY  + bkH);
 
-    const handleToolChange = useCallback((tool: Tool) => {
-      activeToolRef.current = tool;
-      setActiveTool(tool);
-    }, []);
-
   // ---- 描画（マウス） ----
   const handleMouseDown = (_e: Konva.KonvaEventObject<MouseEvent>) => {
     if (activeTool !== "pen") return;
@@ -177,7 +171,7 @@ function ProfileCanvasInner() {
 
   // ---- 描画（タッチ） ----
   const handleTouchStart = (e: Konva.KonvaEventObject<TouchEvent>) => {
-    if (activeToolRef.current !== "pen") return;
+    if (activeTool !== "pen") return;
     if (e.evt.touches.length !== 1 || wasPinching.current) return;
     const pos = stageRef.current?.getPointerPosition();
     if (!pos || !inImage(pos.x, pos.y)) return;
@@ -186,7 +180,7 @@ function ProfileCanvasInner() {
   };
 
   const handleTouchMove = (e: Konva.KonvaEventObject<TouchEvent>) => {
-    if (activeToolRef.current !== "pen") return;
+    if (activeTool !== "pen") return;
     if (e.evt.touches.length !== 1) return;
     const pos = stageRef.current?.getPointerPosition();
     if (!pos) return;
@@ -387,7 +381,7 @@ function ProfileCanvasInner() {
       <div className="fixed top-20 left-2 z-50 flex flex-col gap-2 lg:flex-row lg:left-4">
         <Toolbar
           activeTool={activeTool}
-          onToolChange={handleToolChange}
+          onToolChange={(tool) => setActiveTool(tool)}
           onUndo={undo}
           onRedo={redo}
           onDownloadAll={handleDownloadAll}
@@ -402,7 +396,7 @@ function ProfileCanvasInner() {
         className="w-full overflow-hidden"
         style={{
           height: `calc(100vh - ${HEADER_H + FOOTER_H}px)`,
-          touchAction: "none",
+          touchAction: activeTool === "pen" ? "none" : "manipulation",
           cursor: activeTool === "pen" ? "crosshair" : "grab",
           boxSizing: "border-box",
         }}
