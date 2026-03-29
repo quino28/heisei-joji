@@ -5,9 +5,17 @@ export default function Header() {
       style={{
         backgroundColor: '#998DBD',
         height: '50px',
+        fontSize: 20,
+        fontWeight: 800,
+        color: '#f0d0ff',
+        letterSpacing: '0.05em',
       }}
     >
-      <p>header</p>
+      <p>
+        <span style={{ color: '#64469666' }}>✿</span>
+          &nbsp;平成女児プロフ&nbsp;
+        <span style={{ color: '#64469666' }}>✿</span>
+      </p>
     </header>
   );
 }

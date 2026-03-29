@@ -1,0 +1,408 @@
+"use client";
+
+import { useRef, useState, useCallback, useEffect } from "react";
+import { Stage, Layer, Image as KonvaImage, Line, Rect } from "react-konva";
+import Konva from "konva";
+import useImage from "use-image";
+import dynamic from "next/dynamic";
+import Toolbar from "./Toolbar";
+
+// ---- 定数 ----
+const GAP      = 20;
+const PAD      = 20;
+const MAX_SCALE = 8;
+const HEADER_H  = 50;
+const FOOTER_H  = 50;
+const CLAMP = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+type LineData = { points: number[]; strokeWidth: number };
+
+function usePair() {
+  const [front] = useImage("/myprofile_front.png", "anonymous");
+  const [back]  = useImage("/myprofile_back.png",  "anonymous");
+  return { front, back };
+}
+
+function ProfileCanvasInner() {
+  const { front, back } = usePair();
+  const stageRef = useRef<Konva.Stage>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
+
+  const [scale,  setScale]  = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const scaleRef    = useRef(1);
+  const offsetRef   = useRef({ x: 0, y: 0 });
+  const minScaleRef = useRef(0.05);
+  const isPCRef     = useRef(false);
+  // Stage の自然サイズ（transform前）
+  const stageWRef   = useRef(1);
+  const stageHRef   = useRef(1);
+
+  const [lines,   setLines]   = useState<LineData[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const isDrawing   = useRef(false);
+  const wasPinching = useRef(false);
+  const lastDist    = useRef(0);
+  const lastMid     = useRef({ x: 0, y: 0 });
+
+  // ---- レイアウト計算 ----
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
+  const imgW = front?.width  ?? 500;
+  const imgH = front?.height ?? 625;
+  const bkW  = back?.width   ?? 500;
+  const bkH  = back?.height  ?? 625;
+
+  const frontX = PAD;
+  const frontY = PAD;
+  const backX  = isMobile ? PAD              : PAD + imgW + GAP;
+  const backY  = isMobile ? PAD + imgH + GAP : PAD;
+
+  const stageW = isMobile
+    ? PAD * 2 + Math.max(imgW, bkW)
+    : PAD * 2 + imgW + GAP + bkW;
+  const stageH = isMobile
+    ? PAD * 2 + imgH + GAP + bkH
+    : PAD * 2 + Math.max(imgH, bkH);
+
+  // ---- パン範囲クランプ ----
+  // 画像が画面外に完全に出ないよう offset を制限する
+  // 「画面端に触れるまで」= stageW*scale の端が viewport の端に達するまで動かせる
+  const clampOffset = useCallback((s: number, ox: number, oy: number) => {
+    const el = outerRef.current;
+    if (!el) return { x: ox, y: oy };
+    const vw = el.clientWidth;
+    const vh = el.clientHeight;
+    const sw = stageWRef.current * s;
+    const sh = stageHRef.current * s;
+
+    // x: 右端が左に来てもダメ、左端が右に来てもダメ
+    const minX = sw >= vw ? vw - sw : (vw - sw) / 2;
+    const maxX = sw >= vw ? 0       : (vw - sw) / 2;
+    // y: paddingTop(32px)分を考慮。上はpadding内に収め、下は画像が消えないよう制限
+    const PTOP = 32;
+    const minY = sh >= vh ? vh - sh : PTOP;
+    const maxY = sh >= vh ? PTOP    : vh - sh;
+
+    return {
+      x: CLAMP(ox, minX, maxX),
+      y: CLAMP(oy, minY, maxY),
+    };
+  }, []);
+
+  const applyTransform = useCallback((s: number, o: { x: number; y: number }) => {
+    const clamped = clampOffset(s, o.x, o.y);
+    scaleRef.current  = s;
+    offsetRef.current = clamped;
+    setScale(s);
+    setOffset(clamped);
+  }, [clampOffset]);
+
+  // ---- 初期スケール・センタリング ----
+  useEffect(() => {
+    if (!outerRef.current || !front || !back) return;
+    const el     = outerRef.current;
+    const availW = el.clientWidth;
+    const availH = el.clientHeight;
+    const isPC   = window.innerWidth >= 1024;
+    isPCRef.current   = isPC;
+    stageWRef.current = stageW;
+    stageHRef.current = stageH;
+
+    let s: number;
+    if (isPC) {
+      const sx = (availW * 0.92) / stageW;
+      const sy = (availH * 0.92) / stageH;
+      s = Math.min(sx, sy);
+    } else {
+      // モバイル: 幅基準のみ
+      s = (availW * 0.88) / stageW;
+    }
+    s = CLAMP(s, 0.05, MAX_SCALE);
+    minScaleRef.current = s; // 初期スケール = 最小スケール
+
+    const ox = (availW - stageW * s) / 2;
+    // PC: 上部に小さめの余白（16px）、モバイル: ヘッダー直下
+    const oy = 8;
+    applyTransform(s, { x: ox, y: oy });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [front, back]);
+
+  // ---- 画像内チェック ----
+  const inImage = (x: number, y: number) =>
+    (x >= frontX && x <= frontX + imgW && y >= frontY && y <= frontY + imgH) ||
+    (x >= backX  && x <= backX  + bkW  && y >= backY  && y <= backY  + bkH);
+
+  // ---- 描画 ----
+  const handleMouseDown = (_e: Konva.KonvaEventObject<MouseEvent>) => {
+    const pos = stageRef.current?.getPointerPosition();
+    if (!pos || !inImage(pos.x, pos.y)) return;
+    isDrawing.current = true;
+    setLines(prev => [...prev, { points: [pos.x, pos.y], strokeWidth: 3 }]);
+  };
+
+  const handleMouseMove = (_e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (!isDrawing.current) return;
+    const pos = stageRef.current?.getPointerPosition();
+    if (!pos) return;
+    setLines(prev => {
+      const u = [...prev];
+      u[u.length - 1] = { ...u[u.length - 1], points: [...u[u.length - 1].points, pos.x, pos.y] };
+      return u;
+    });
+  };
+
+  const handleMouseUp = () => {
+    if (!isDrawing.current) return;
+    isDrawing.current = false;
+    setLines(cur => { pushHistory(cur); return cur; });
+  };
+
+  const handleTouchStart = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    if (e.evt.touches.length !== 1 || wasPinching.current) return;
+    const pos = stageRef.current?.getPointerPosition();
+    if (!pos || !inImage(pos.x, pos.y)) return;
+    isDrawing.current = true;
+    setLines(prev => [...prev, { points: [pos.x, pos.y], strokeWidth: 3 }]);
+  };
+
+  const handleTouchMove = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    if (!isDrawing.current || e.evt.touches.length !== 1) return;
+    const pos = stageRef.current?.getPointerPosition();
+    if (!pos) return;
+    setLines(prev => {
+      const u = [...prev];
+      u[u.length - 1] = { ...u[u.length - 1], points: [...u[u.length - 1].points, pos.x, pos.y] };
+      return u;
+    });
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDrawing.current) return;
+    isDrawing.current = false;
+    setLines(cur => { pushHistory(cur); return cur; });
+  };
+
+  // ---- History（refのみで管理・stale closure完全回避） ----
+  const historyRef    = useRef<LineData[][]>([[]]);
+  const historyIdxRef = useRef(0);
+
+  const pushHistory = useCallback((newLines: LineData[]) => {
+    const current = historyRef.current[historyIdxRef.current];
+    if (JSON.stringify(current) === JSON.stringify(newLines)) return;
+
+    const next = historyRef.current.slice(0, historyIdxRef.current + 1);
+    next.push([...newLines]);
+    historyRef.current    = next;
+    historyIdxRef.current = next.length - 1;
+    setCanUndo(true);
+    setCanRedo(false);
+  }, []);
+
+  const undo = useCallback(() => {
+    if (historyIdxRef.current <= 0) return;
+    const ni = historyIdxRef.current - 1;
+    historyIdxRef.current = ni;
+    setLines([...historyRef.current[ni]]);
+    setCanUndo(ni > 0);
+    setCanRedo(true);
+  }, []);
+
+  const redo = useCallback(() => {
+    if (historyIdxRef.current >= historyRef.current.length - 1) return;
+    const ni = historyIdxRef.current + 1;
+    historyIdxRef.current = ni;
+    setLines([...historyRef.current[ni]]);
+    setCanUndo(true);
+    setCanRedo(ni < historyRef.current.length - 1);
+  }, []);
+
+  // ---- ダウンロード ----
+  const downloadArea = (x: number, y: number, w: number, h: number, name: string) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const uri = stage.toDataURL({ x, y, width: w, height: h, pixelRatio: 2 });
+    const a = document.createElement("a");
+    a.download = name; a.href = uri; a.click();
+  };
+
+  const handleDownloadAll = () => {
+    downloadArea(frontX, frontY, imgW, imgH, "jojiprof_front.png");
+    setTimeout(() => downloadArea(backX, backY, bkW, bkH, "jojiprof_back.png"), 300);
+  };
+
+  const handleShareTwitter = () => {
+    const t = encodeURIComponent("プロフィール書いたよ✨ #平成女児プロフ");
+    window.open(`https://twitter.com/intent/tweet?text=${t}`, "_blank");
+  };
+
+  // ---- ホイール / トラックパッド ----
+  useEffect(() => {
+    const el = outerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const px   = e.clientX - rect.left;
+      const py   = e.clientY - rect.top;
+
+      if (e.ctrlKey) {
+        // ピンチズーム
+        const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+        const ns = CLAMP(scaleRef.current * factor, minScaleRef.current, MAX_SCALE);
+        const r  = ns / scaleRef.current;
+        applyTransform(ns, {
+          x: px - (px - offsetRef.current.x) * r,
+          y: py - (py - offsetRef.current.y) * r,
+        });
+      } else {
+        // 2本指スクロール → パン
+        // PC: 拡大されていれば全方向、初期スケールなら不可
+        // モバイル: 初期スケールでは上下のみ、拡大時は全方向
+        const isZoomed = scaleRef.current > minScaleRef.current + 0.001;
+        const isPC     = isPCRef.current;
+
+        if (isPC && !isZoomed) return; // PCで初期表示はパン不可
+
+        const dx = (isPC || isZoomed) ? -e.deltaX : 0; // 横パン: 拡大時のみ
+        const dy = -e.deltaY;
+        applyTransform(scaleRef.current, {
+          x: offsetRef.current.x + dx,
+          y: offsetRef.current.y + dy,
+        });
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [applyTransform]);
+
+  // ---- タッチ（ピンチ＋2本指パン） ----
+  useEffect(() => {
+    const el = outerRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        wasPinching.current = true;
+        isDrawing.current   = false;
+        lastDist.current = Math.hypot(
+          e.touches[1].clientX - e.touches[0].clientX,
+          e.touches[1].clientY - e.touches[0].clientY,
+        );
+        lastMid.current = {
+          x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+          y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+        };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const nd   = Math.hypot(
+        e.touches[1].clientX - e.touches[0].clientX,
+        e.touches[1].clientY - e.touches[0].clientY,
+      );
+      const mid = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      };
+      const px     = mid.x - rect.left;
+      const py     = mid.y - rect.top;
+      const factor = nd / lastDist.current;
+      const panDx  = mid.x - lastMid.current.x;
+      const panDy  = mid.y - lastMid.current.y;
+      lastDist.current = nd;
+      lastMid.current  = mid;
+
+      const isZoomed = scaleRef.current > minScaleRef.current + 0.001;
+      const ns = CLAMP(scaleRef.current * factor, minScaleRef.current, MAX_SCALE);
+      const r  = ns / scaleRef.current;
+
+      // 初期スケールでは上下パンのみ、拡大時は全方向
+      const dx = isZoomed ? px - (px - offsetRef.current.x) * r + panDx
+       : offsetRef.current.x; // x固定
+      const dy = py - (py - offsetRef.current.y) * r + panDy;
+      applyTransform(ns, { x: dx, y: dy });
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) setTimeout(() => { wasPinching.current = false; }, 50);
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove",  onTouchMove,  { passive: false });
+    el.addEventListener("touchend",   onTouchEnd,   { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove",  onTouchMove);
+      el.removeEventListener("touchend",   onTouchEnd);
+    };
+  }, [applyTransform]);
+
+  return (
+    <>
+      <div className="fixed top-20 left-2 z-50 flex flex-col gap-2 lg:flex-row lg:left-4">
+        <Toolbar
+          activeTool="pen"
+          onToolChange={() => {}}
+          onUndo={undo}
+          onRedo={redo}
+          onDownloadAll={handleDownloadAll}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onShareTwitter={handleShareTwitter}
+        />
+      </div>
+
+      <div
+        ref={outerRef}
+        className="w-full overflow-hidden"
+        style={{
+          height: `calc(100vh - ${HEADER_H + FOOTER_H}px)`,
+          touchAction: "none",
+          cursor: "default",
+          boxSizing: "border-box",
+        }}
+      >
+        <div
+          style={{
+            transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+            transformOrigin: "0 0",
+            willChange: "transform",
+            display: "inline-block",
+          }}
+        >
+          <Stage
+            ref={stageRef}
+            width={stageW}
+            height={stageH}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            style={{ display: "block" }}
+          >
+            <Layer>
+              <Rect x={0} y={0} width={stageW} height={stageH}
+                fill="rgba(255,255,255,0.5)" cornerRadius={16} />
+              {front && <KonvaImage image={front} x={frontX} y={frontY} width={imgW} height={imgH} />}
+              {back  && <KonvaImage image={back}  x={backX}  y={backY}  width={bkW}  height={bkH}  />}
+              {lines.map((line, i) => (
+                <Line key={i} points={line.points} stroke="#000"
+                  strokeWidth={line.strokeWidth} tension={0.5}
+                  lineCap="round" lineJoin="round" />
+              ))}
+            </Layer>
+          </Stage>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export default dynamic(() => Promise.resolve(ProfileCanvasInner), { ssr: false });
