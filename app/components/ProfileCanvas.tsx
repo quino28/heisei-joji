@@ -264,23 +264,6 @@ function ProfileCanvasInner() {
     // ---- iOS/iPadOS判定 ----
     const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
       || (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1);
-    const win = isIOS ? window.open("", "_blank") : null;
-    if (isIOS && !win) return;
-
-    if (isIOS && win) {
-      win.document.write(`
-        <html>
-        <head>
-        <title>生成中...</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1" />
-        </head>
-        <body>
-        <p>生成中...</p>
-        </body>
-        </html>
-      `);
-      win.document.close();
-    }
 
     const frontUri = stage.toDataURL({ x: frontX, y: frontY, width: imgW, height: imgH, pixelRatio: 2 });
     const backUri  = stage.toDataURL({ x: backX,  y: backY,  width: bkW,  height: bkH,  pixelRatio: 2 });
@@ -303,47 +286,61 @@ function ProfileCanvasInner() {
 
         if (isIOS) {
           // iOS/iPadOS → 新規タブで開いて長押し保存
-          if (!win) return;
+          const html = `
+            <!DOCTYPE html>
+            <html lang="ja">
+            <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width,initial-scale=1" />
+            <title>プロフィール画像</title>
+            <style>
+            body {
+              margin: 0;
+              min-height: 100vh;
+              background-image: url('/yumekawa_bg.jpeg');
+              background-size: cover;
+              background-position: center;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              padding: 16px;
+              box-sizing: border-box;
+              gap: 16px;
+            }
 
-          win.document.title = "プロフィール画像";
+            img {
+              max-width: 100%;
+              height: auto;
+              display: block;
+            }
 
-          const meta = win.document.createElement("meta");
-          meta.name = "viewport";
-          meta.content = "width=device-width,initial-scale=1";
-          win.document.head.appendChild(meta);
-
-          win.document.body.style.cssText = `
-            margin: 0;
-            min-height: 100vh;
-            background-image: url('/yumekawa_bg.jpeg');
-            background-size: cover;
-            background-position: center;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 16px;
-            box-sizing: border-box;
-            gap: 16px;
+            p {
+              color: #000;
+              text-align: center;
+              font-size: 14px;
+              background: rgba(255,255,255,0.6);
+              padding: 6px 16px;
+              border-radius: 8px;
+              margin: 0;
+            }
+            </style>
+            </head>
+            <body>
+            <img src="${dataUrl}" />
+            <p>長押しして「写真に保存」してね！</p>
+            </body>
+            </html>
             `;
 
-          const img = win.document.createElement("img");
-          img.src = dataUrl;
-          img.style.cssText = "max-width:100%;height:auto;display:block";
-          win.document.body.appendChild(img);
+          const blob = new Blob([html], { type: "text/html" });
+          const url = URL.createObjectURL(blob);
 
-          const p = win.document.createElement("p");
-          p.textContent = "長押しして「写真に保存」してね！";
-          p.style.cssText = `
-            color: #000;
-            text-align: center;
-            font-size: 14px;
-            background: rgba(255,255,255,0.6);
-            padding: 6px 16px;
-            border-radius: 8px;
-            margin: 0;
-            `;
-          win.document.body.appendChild(p);
+          const a = document.createElement("a");
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.click();
         } else {
           // Mac・Android・PCは通常ダウンロード
           const a = document.createElement("a");
