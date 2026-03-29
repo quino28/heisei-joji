@@ -103,10 +103,6 @@ export default function Toolbar({
         <Redo2 size={20} />
       </ToolButton>
 
-      {/* 区切り */}
-      <div className="w-px h-4 bg-purple-200 self-center hidden lg:block" />
-      <div className="h-px w-4 bg-purple-200 self-center lg:hidden" />
-
       {/* ダウンロード（表裏まとめて） */}
       <ToolButton onClick={onDownloadAll} title="表裏をダウンロード">
         <Download size={20} />
