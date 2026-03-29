@@ -261,6 +261,11 @@ function ProfileCanvasInner() {
     const stage = stageRef.current;
     if (!stage) return;
 
+    // ---- iOS/iPadOS判定 ----
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+      || (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1);
+    const win = isIOS ? window.open() : null;
+
     const frontUri = stage.toDataURL({ x: frontX, y: frontY, width: imgW, height: imgH, pixelRatio: 2 });
     const backUri  = stage.toDataURL({ x: backX,  y: backY,  width: bkW,  height: bkH,  pixelRatio: 2 });
 
@@ -280,13 +285,8 @@ function ProfileCanvasInner() {
 
         const dataUrl = canvas.toDataURL("image/png");
 
-        // ---- iOS/iPadOS判定 ----
-        const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
-          || (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1);
-
         if (isIOS) {
           // iOS/iPadOS → 新規タブで開いて長押し保存
-          const win = window.open();
           if (!win) return;
 
           win.document.title = "プロフィール画像";
