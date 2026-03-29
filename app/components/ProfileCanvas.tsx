@@ -264,7 +264,23 @@ function ProfileCanvasInner() {
     // ---- iOS/iPadOS判定 ----
     const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
       || (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1);
-    const win = isIOS ? window.open() : null;
+    const win = isIOS ? window.open("", "_blank") : null;
+    if (isIOS && !win) return;
+
+    if (isIOS && win) {
+      win.document.write(`
+        <html>
+        <head>
+        <title>生成中...</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        </head>
+        <body>
+        <p>生成中...</p>
+        </body>
+        </html>
+      `);
+      win.document.close();
+    }
 
     const frontUri = stage.toDataURL({ x: frontX, y: frontY, width: imgW, height: imgH, pixelRatio: 2 });
     const backUri  = stage.toDataURL({ x: backX,  y: backY,  width: bkW,  height: bkH,  pixelRatio: 2 });
