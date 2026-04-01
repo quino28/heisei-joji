@@ -42,6 +42,8 @@ function ProfileCanvasInner() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  const isGSA = /GSA/.test(navigator.userAgent);
+
   // ---- モード管理（モバイルはpanデフォルト） ----
   const activeToolRef = useRef<Tool>(
     typeof window !== "undefined" && window.innerWidth < 1024 ? "pan" : "pen"
@@ -264,9 +266,9 @@ function ProfileCanvasInner() {
     // ---- iOS/iPadOS判定 ----
     const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
       || (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1);
-    const isSafari = isIOS && /Safari/.test(navigator.userAgent) && !/CriOS/.test(navigator.userAgent);
+    const isChromium = isIOS && /CriOS|Brave/.test(navigator.userAgent);
 
-    const win = isSafari ? window.open() : null;
+    const win = !isChromium ? window.open() : null;
 
     const frontUri = stage.toDataURL({ x: frontX, y: frontY, width: imgW, height: imgH, pixelRatio: 2 });
     const backUri  = stage.toDataURL({ x: backX,  y: backY,  width: bkW,  height: bkH,  pixelRatio: 2 });
@@ -289,48 +291,7 @@ function ProfileCanvasInner() {
 
         if (isIOS) {
           // iOS/iPadOS → 新規タブで開いて長押し保存
-          if (isSafari) {
-            if (!win) return;
-            win.document.title = "プロフィール画像";
-
-            const meta = win.document.createElement("meta");
-            meta.name = "viewport";
-            meta.content = "width=device-width,initial-scale=1";
-            win.document.head.appendChild(meta);
-
-            win.document.body.style.cssText = `
-              margin: 0;
-              min-height: 100vh;
-              background-image: url('/yumekawa_bg.jpeg');
-              background-size: cover;
-              background-position: center;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              padding: 16px;
-              box-sizing: border-box;
-              gap: 16px;
-            `;
-
-            const img = win.document.createElement("img");
-            img.src = dataUrl;
-            img.style.cssText = "max-width:100%;height:auto;display:block";
-            win.document.body.appendChild(img);
-
-            const p = win.document.createElement("p");
-            p.textContent = "長押しして「写真に保存」してね！";
-            p.style.cssText = `
-              color: #000;
-              text-align: center;
-              font-size: 14px;
-              background: rgba(255,255,255,0.6);
-              padding: 6px 16px;
-              border-radius: 8px;
-              margin: 0;
-            `;
-            win.document.body.appendChild(p);
-          } else {
+          if (isChromium) {
             const html = `
               <!DOCTYPE html>
               <html lang="ja">
@@ -386,6 +347,47 @@ function ProfileCanvasInner() {
             a.target = "_blank";
             a.rel = "noopener noreferrer";
             a.click();
+          } else {
+            if (!win) return;
+            win.document.title = "プロフィール画像";
+
+            const meta = win.document.createElement("meta");
+            meta.name = "viewport";
+            meta.content = "width=device-width,initial-scale=1";
+            win.document.head.appendChild(meta);
+
+            win.document.body.style.cssText = `
+              margin: 0;
+              min-height: 100vh;
+              background-image: url('/yumekawa_bg.jpeg');
+              background-size: cover;
+              background-position: center;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              padding: 16px;
+              box-sizing: border-box;
+              gap: 16px;
+            `;
+
+            const img = win.document.createElement("img");
+            img.src = dataUrl;
+            img.style.cssText = "max-width:100%;height:auto;display:block";
+            win.document.body.appendChild(img);
+
+            const p = win.document.createElement("p");
+            p.textContent = "長押しして「写真に保存」してね！";
+            p.style.cssText = `
+              color: #000;
+              text-align: center;
+              font-size: 14px;
+              background: rgba(255,255,255,0.6);
+              padding: 6px 16px;
+              border-radius: 8px;
+              margin: 0;
+            `;
+            win.document.body.appendChild(p);
           }
         } else {
           // Mac・Android・PCは通常ダウンロード
@@ -545,6 +547,25 @@ function ProfileCanvasInner() {
 
   return (
     <>
+      {/* GSA向け案内バナー */}
+      {isGSA && (
+        <div style={{
+          position: "fixed",
+          top: `${HEADER_H}px`,
+          left: 0,
+          right: 0,
+          zIndex: 40,
+          background: "rgba(255,255,255,0.95)",
+          borderBottom: "1px solid #f0a0c0",
+          padding: "8px 16px",
+          textAlign: "center",
+          fontSize: "13px",
+          color: "#333",
+          lineHeight: 1.5,
+        }}>
+          ⚠️ ちゅうい：SafariかChromeブラウザで遊んでね🙏
+        </div>
+      )}
       <div className="fixed top-20 left-2 z-50 flex flex-col gap-2 lg:flex-row lg:left-4">
         <Toolbar
           activeTool={activeTool}
