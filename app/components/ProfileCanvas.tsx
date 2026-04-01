@@ -268,7 +268,7 @@ function ProfileCanvasInner() {
       || (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1);
     const isChromium = isIOS && /CriOS|Brave/.test(navigator.userAgent);
 
-    const win = !isChromium ? window.open() : null;
+    const win = isIOS && !isChromium ? window.open() : null;
 
     const frontUri = stage.toDataURL({ x: frontX, y: frontY, width: imgW, height: imgH, pixelRatio: 2 });
     const backUri  = stage.toDataURL({ x: backX,  y: backY,  width: bkW,  height: bkH,  pixelRatio: 2 });
